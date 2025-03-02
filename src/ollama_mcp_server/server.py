@@ -514,19 +514,43 @@ async def handle_call_tool(
         if not prompt:
             raise MCPServiceError("Missing prompt", 400)
             
+        # ユーザー指定モデルを優先、なければconfigから、それもなければデフォルト
         model = arguments.get("model", settings.ollama.default_model)
         temperature = arguments.get("temperature", settings.ollama.temperature)
+        max_tokens = arguments.get("max_tokens", settings.ollama.max_tokens)
         
         try:
+            # モデル情報をログに出力
+            logger.info(f"モデル実行: model={model}, temperature={temperature}, max_tokens={max_tokens}")
+            
             # 一時的にモデルとパラメータを変更するためのクライアントを作成
             temp_client = OllamaClient(
                 model=model,
-                temperature=temperature
+                temperature=temperature,
+                max_tokens=max_tokens
             )
+            
+            # モデル存在チェック（オプション）
+            model_exists = await temp_client.check_model_exists(model)
+            if not model_exists:
+                logger.warning(f"モデル '{model}' は利用可能な一覧に見つかりません。実行は継続します。")
             
             response = await temp_client.generate_text(prompt)
             
-            logger.info(f"Model executed: {model} with temperature {temperature}")
+            if not response:
+                # 空の応答の場合、詳細なエラーメッセージを出力
+                available_models = await temp_client.get_available_models()
+                models_info = ", ".join(available_models) if available_models else "利用可能なモデルがありません"
+                error_msg = f"エラー: モデル '{model}' からの応答が得られませんでした。\n利用可能なモデル: {models_info}"
+                logger.error(error_msg)
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=error_msg
+                    )
+                ]
+            
+            logger.info(f"モデル実行完了: {model}")
             return [
                 types.TextContent(
                     type="text",
@@ -534,8 +558,8 @@ async def handle_call_tool(
                 )
             ]
         except Exception as e:
-            logger.error(f"Error running model: {str(e)}")
-            raise MCPServiceError(f"Failed to run model: {str(e)}", 500)
+            logger.error(f"モデル実行エラー: {str(e)}")
+            raise MCPServiceError(f"モデル実行に失敗しました: {str(e)}", 500)
     
     else:
         raise MCPServiceError(f"Unknown tool: {name}", 404)
@@ -549,6 +573,29 @@ async def main():
     )
     logger = logging.getLogger("ollama-mcp-server")
     logger.info("Starting Ollama MCP Server...")
+    
+    # デフォルトモデルのチェック
+    try:
+        client = OllamaClient()
+        logger.info(f"設定されたデフォルトモデル: {client.model}")
+        
+        # 利用可能なモデル一覧を取得
+        available_models = await client.get_available_models()
+        if available_models:
+            logger.info(f"利用可能なモデル: {', '.join(available_models)}")
+            
+            # デフォルトモデルが存在するかチェック
+            if client.model in available_models:
+                logger.info(f"デフォルトモデル '{client.model}' は利用可能です")
+            else:
+                logger.warning(f"デフォルトモデル '{client.model}' が見つかりません！")
+                logger.warning(f"次のいずれかのモデルを使用してください: {', '.join(available_models)}")
+                logger.warning("または 'ollama pull [model]' コマンドでモデルをダウンロードしてください")
+        else:
+            logger.warning("利用可能なモデルが見つかりません。Ollamaサーバーが実行中であることを確認してください")
+            logger.warning(f"Ollamaサーバーアドレス: {client.api_base_url}")
+    except Exception as e:
+        logger.error(f"モデルチェック中にエラーが発生しました: {str(e)}")
     
     try:
         # サーバーを起動

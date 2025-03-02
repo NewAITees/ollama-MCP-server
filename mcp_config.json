@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ollama-MCP-server": {
+      "command": "python",
+      "args": [
+        "-m",
+        "ollama_mcp_server"
+      ],
+      "env": [
+        {"model": "deepseek-r1:14b"}
+      ]
+    }
+  }
+} 

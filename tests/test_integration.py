@@ -107,16 +107,21 @@ class TestIntegration(IsolatedAsyncioTestCase):
         self.assertTrue(any(str(r.uri).startswith("result://") for r in resources))
         
     @patch('ollama_mcp_server.ollama_client.OllamaClient.generate_text')
-    async def test_run_model(self, mock_generate_text):
+    @patch('ollama_mcp_server.ollama_client.OllamaClient.get_available_models')
+    @patch('ollama_mcp_server.ollama_client.OllamaClient.check_model_exists')
+    async def test_run_model(self, mock_check_model_exists, mock_get_available_models, mock_generate_text):
         """run-modelツールのテスト"""
         # モック応答を設定
         mock_generate_text.return_value = "これはモデルからの応答です。"
+        mock_get_available_models.return_value = ["llama3", "mistral", "llama2"]
+        mock_check_model_exists.return_value = True
         
         # モデルを実行
         result = await self.client.call_tool("run-model", {
-            "model": "llama2",
+            "model": "deepseek-r1:14b",
             "prompt": "こんにちは、AIさん",
-            "temperature": 0.7
+            "temperature": 0.7,
+            "max_tokens": 10000
         })
         
         # エラーレスポンスの場合はテストをスキップ
@@ -130,8 +135,35 @@ class TestIntegration(IsolatedAsyncioTestCase):
         
         # モックが正しく呼び出されたことを確認
         mock_generate_text.assert_called_once()
+        mock_check_model_exists.assert_called_once_with("llama2")
         args, kwargs = mock_generate_text.call_args
         self.assertEqual(args[0], "こんにちは、AIさん")
+        
+    @patch('ollama_mcp_server.ollama_client.OllamaClient.generate_text')
+    @patch('ollama_mcp_server.ollama_client.OllamaClient.get_available_models')
+    @patch('ollama_mcp_server.ollama_client.OllamaClient.check_model_exists')
+    async def test_run_model_with_nonexistent_model(self, mock_check_model_exists, mock_get_available_models, mock_generate_text):
+        """存在しないモデルでのテスト"""
+        # モック応答を設定
+        mock_generate_text.return_value = ""  # 空の応答
+        mock_get_available_models.return_value = ["llama3", "mistral"]
+        mock_check_model_exists.return_value = False
+        
+        # 存在しないモデルで実行
+        result = await self.client.call_tool("run-model", {
+            "model": "nonexistent_model",
+            "prompt": "こんにちは、AIさん"
+        })
+        
+        # エラーメッセージを含む応答であることを確認
+        self.assertIn("raw_text", result)
+        self.assertIn("エラー", result["raw_text"])
+        self.assertIn("利用可能なモデル", result["raw_text"])
+        
+        # モックが正しく呼び出されたことを確認
+        mock_check_model_exists.assert_called_once_with("nonexistent_model")
+        mock_get_available_models.assert_called()
+        mock_generate_text.assert_called_once()
         
     async def test_error_handling(self):
         """エラー処理のテスト"""

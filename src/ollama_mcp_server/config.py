@@ -1,7 +1,11 @@
 # config.py
 import os
+import json
+import logging
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger("ollama-mcp-server")
 
 class OllamaSettings(BaseSettings):
     """Ollamaの設定."""
@@ -28,9 +32,43 @@ class AppSettings(BaseSettings):
     # Ollamaの設定
     ollama: OllamaSettings = OllamaSettings()
     
+    # MCP config file path
+    mcp_config_path: str = "./mcp_config.json"
+    
     model_config = {
         "env_file": ".env",
         "env_prefix": "APP_"
     }
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 環境変数からMCP設定ファイルパスを上書き
+        env_path = os.environ.get("MCP_CONFIG_PATH")
+        if env_path:
+            self.mcp_config_path = env_path
+        self._load_mcp_config()
+    
+    def _load_mcp_config(self):
+        """MCP設定ファイルを読み込む"""
+        if os.path.exists(self.mcp_config_path):
+            try:
+                with open(self.mcp_config_path, 'r') as f:
+                    config = json.load(f)
+                
+                # mcpServersセクションが存在するか確認
+                if "mcpServers" in config and "ollama-MCP-server" in config["mcpServers"]:
+                    server_config = config["mcpServers"]["ollama-MCP-server"]
+                    
+                    # env設定があればパースする
+                    if "env" in server_config:
+                        for env_setting in server_config["env"]:
+                            if isinstance(env_setting, dict):
+                                # {"model": "deepseek:r14B"} のような形式
+                                for key, value in env_setting.items():
+                                    if key == "model" and value:
+                                        logger.info(f"設定ファイルからモデルを読み込みました: {value}")
+                                        self.ollama.default_model = value
+            except (json.JSONDecodeError, IOError) as e:
+                logger.error(f"MCP設定ファイル読み込みエラー: {e}")
 
 settings = AppSettings() 
