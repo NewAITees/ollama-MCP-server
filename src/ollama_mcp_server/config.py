@@ -10,6 +10,12 @@ class OllamaSettings(BaseSettings):
     temperature: float = 0.7
     max_tokens: int = 2048
     
+    # パフォーマンス関連設定
+    cache_size: int = 100
+    max_connections: int = 10
+    max_connections_per_host: int = 10
+    request_timeout: int = 60  # 秒
+    
     model_config = {
         "env_file": ".env",
         "env_prefix": "OLLAMA_"

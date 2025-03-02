@@ -20,4 +20,4 @@ requires = [ "hatchling",]
 build-backend = "hatchling.build"
 
 [project.scripts]
-ollama-mcp-server = "ollama_mcp_server:main"
+ollama-mcp-server = "ollama_mcp_server.__main__:run"
